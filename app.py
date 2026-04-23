@@ -9,37 +9,38 @@ st.title("🎮 游戏经济系统定性分析流水账")
 # --- 1. 映射表加载函数 ---
 @st.cache_data
 def load_mappings():
-    """读取映射表，并将第一列重命名为对应的键值，确保 merge 对齐"""
+    """读取映射表，针对 Tab 分隔符进行优化"""
     def safe_read(file_path):
+        # 统一使用 sep='\t' 应对 Tab 分隔
         try:
-            return pd.read_csv(file_path, encoding='utf-8')
+            return pd.read_csv(file_path, sep='\t', encoding='utf-8')
         except:
-            return pd.read_csv(file_path, encoding='gbk')
+            return pd.read_csv(file_path, sep='\t', encoding='gbk')
     
     try:
         type_map = safe_read('config/resource_type_mapping.csv')
         id_map = safe_read('config/resource_id_mapping.csv')
         
-        # 强制将映射表第一列命名为匹配的 KEY，确保 merge 不报错
+        # 强制将映射表第一列重命名为对应的键值，确保 merge 对齐
         type_map.rename(columns={type_map.columns[0]: 'get_type'}, inplace=True)
         id_map.rename(columns={id_map.columns[0]: 'resource_id'}, inplace=True)
         
         return type_map, id_map
     except Exception as e:
-        st.error(f"映射表加载错误: {e}")
+        st.error(f"映射表加载失败，请检查 config/ 文件夹及文件格式: {e}")
         return None, None
 
 # --- 2. 主程序 ---
 def main():
-    uploaded_file = st.file_uploader("请上传您的 SQL 流水账 (CSV)", type=["csv"])
+    uploaded_file = st.file_uploader("请上传您的 SQL 流水账 (CSV/TSV)", type=["csv", "txt"])
     
     if uploaded_file is not None:
-        # A. 读取流水账
+        # A. 读取流水账 (使用 sep='\t' 解决制表符问题)
         try:
-            df = pd.read_csv(uploaded_file, encoding='utf-8')
+            df = pd.read_csv(uploaded_file, sep='\t', encoding='utf-8')
         except:
             uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, encoding='gbk')
+            df = pd.read_csv(uploaded_file, sep='\t', encoding='gbk')
         
         # B. 精确指定列名
         type_col = 'get_type'
@@ -49,7 +50,7 @@ def main():
             st.error(f"❌ 错误：CSV 中缺少必要的列！期望: {type_col}, {id_col}。现有: {df.columns.tolist()}")
             return
 
-        # C. 执行合并
+        # C. 执行映射合并
         type_map, id_map = load_mappings()
         if type_map is not None and id_map is not None:
             df[type_col] = df[type_col].astype(str)
@@ -83,7 +84,7 @@ def main():
         edited_df.to_csv(csv_buffer, index=False)
         st.download_button("💾 下载标注结果", csv_buffer.getvalue(), "labeled_data.csv", "text/csv")
     else:
-        st.info("💡 请上传 CSV 文件")
+        st.info("💡 请上传 CSV/TSV 文件")
 
 if __name__ == "__main__":
     main()
