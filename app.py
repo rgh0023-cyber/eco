@@ -9,13 +9,13 @@ st.title("🎮 游戏经济系统定性分析流水账")
 # --- 1. 映射表加载函数 ---
 @st.cache_data
 def load_mappings():
-    """读取映射表，针对 Tab 分隔符进行优化"""
+    """读取映射表，使用 errors='replace' 防止编码报错"""
     def safe_read(file_path):
-        # 统一使用 sep='\t' 应对 Tab 分隔
+        # 尝试使用 utf-8 读取，如果失败则使用 gbk，并设置 errors='replace' 忽略无法解码的字符
         try:
-            return pd.read_csv(file_path, sep='\t', encoding='utf-8')
+            return pd.read_csv(file_path, sep='\t', encoding='utf-8', errors='replace')
         except:
-            return pd.read_csv(file_path, sep='\t', encoding='gbk')
+            return pd.read_csv(file_path, sep='\t', encoding='gbk', errors='replace')
     
     try:
         type_map = safe_read('config/resource_type_mapping.csv')
@@ -35,12 +35,12 @@ def main():
     uploaded_file = st.file_uploader("请上传您的 SQL 流水账 (CSV/TSV)", type=["csv", "txt"])
     
     if uploaded_file is not None:
-        # A. 读取流水账 (使用 sep='\t' 解决制表符问题)
+        # A. 读取流水账 (使用 errors='replace' 确保容错)
         try:
-            df = pd.read_csv(uploaded_file, sep='\t', encoding='utf-8')
+            df = pd.read_csv(uploaded_file, sep='\t', encoding='utf-8', errors='replace')
         except:
             uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep='\t', encoding='gbk')
+            df = pd.read_csv(uploaded_file, sep='\t', encoding='gbk', errors='replace')
         
         # B. 精确指定列名
         type_col = 'get_type'
