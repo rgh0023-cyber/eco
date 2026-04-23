@@ -9,7 +9,7 @@ st.title("🎮 游戏经济系统定性分析流水账")
 # --- 1. 映射表加载函数 ---
 @st.cache_data
 def load_mappings():
-    """读取 config/ 下的 CSV，自动处理编码，返回 DataFrame"""
+    """读取映射表，并将第一列重命名为对应的键值，确保 merge 对齐"""
     def safe_read(file_path):
         try:
             return pd.read_csv(file_path, encoding='utf-8')
@@ -19,8 +19,14 @@ def load_mappings():
     try:
         type_map = safe_read('config/resource_type_mapping.csv')
         id_map = safe_read('config/resource_id_mapping.csv')
+        
+        # 强制将映射表第一列命名为匹配的 KEY，确保 merge 不报错
+        type_map.rename(columns={type_map.columns[0]: 'get_type'}, inplace=True)
+        id_map.rename(columns={id_map.columns[0]: 'resource_id'}, inplace=True)
+        
         return type_map, id_map
-    except:
+    except Exception as e:
+        st.error(f"映射表加载错误: {e}")
         return None, None
 
 # --- 2. 主程序 ---
@@ -35,28 +41,25 @@ def main():
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, encoding='gbk')
         
-        # B. 自动识别匹配列
-        type_col = next((c for c in df.columns if 'type' in c.lower()), None)
-        id_col = next((c for c in df.columns if 'id' in c.lower()), None)
+        # B. 精确指定列名
+        type_col = 'get_type'
+        id_col = 'resource_id'
         
-        st.write(f"🔍 已识别: 类型列=**{type_col}**, ID列=**{id_col}**")
+        if type_col not in df.columns or id_col not in df.columns:
+            st.error(f"❌ 错误：CSV 中缺少必要的列！期望: {type_col}, {id_col}。现有: {df.columns.tolist()}")
+            return
 
-        # C. 执行合并逻辑
+        # C. 执行合并
         type_map, id_map = load_mappings()
-        if type_map is not None and id_map is not None and type_col and id_col:
-            # 关键修复：强制将映射表的第一列重命名为流水账对应的列名，确保 merge 不报错
-            type_map.rename(columns={type_map.columns[0]: type_col}, inplace=True)
-            id_map.rename(columns={id_map.columns[0]: id_col}, inplace=True)
-            
+        if type_map is not None and id_map is not None:
             df[type_col] = df[type_col].astype(str)
             df[id_col] = df[id_col].astype(str)
             
+            # 使用 left merge
             df = df.merge(type_map, on=type_col, how='left')
             df = df.merge(id_map, on=id_col, how='left')
-            st.success("✅ 数据映射已完成")
-        else:
-            st.warning("⚠️ 映射表加载失败或列名识别异常，请检查 config/ 下的文件格式")
-
+            st.success("✅ 数据映射已完成，业务描述已合并")
+        
         # D. 专家标注
         if 'expert_label' not in df.columns:
             df['expert_label'] = ""
