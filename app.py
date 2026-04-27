@@ -18,9 +18,8 @@ def read_csv_smart(file_buffer):
     df.columns = df.columns.str.strip()
     return df
 
-# --- 2. 强力 ID 清洗函数 ---
+# --- 2. 强力 ID 清洗 ---
 def clean_id(val):
-    """将任何输入转换为统一的字符串格式，消除 .0 影响"""
     try:
         return str(int(float(val)))
     except:
@@ -34,8 +33,6 @@ def load_mappings():
         id_map = pd.read_csv('config/resource_id_mapping.csv', sep=None, engine='python')
         type_map.columns = type_map.columns.str.strip()
         id_map.columns = id_map.columns.str.strip()
-        
-        # 强制将第一列重命名
         type_map.rename(columns={type_map.columns[0]: 'resource_type'}, inplace=True)
         id_map.rename(columns={id_map.columns[0]: 'resource_id'}, inplace=True)
         return type_map, id_map
@@ -54,44 +51,50 @@ def main():
             st.error(f"读取文件失败: {e}")
             return
         
-        # 自动识别关键列
         all_cols = df.columns.tolist()
         type_col = next((c for c in all_cols if 'resource_type' in c.lower()), None)
         id_col = next((c for c in all_cols if 'resource_id' in c.lower()), None)
         
-        if not type_col or not id_col:
-            st.error(f"❌ 错误：在 CSV 中找不到 resource_type 或 resource_id。现有列: {all_cols}")
-            return
-
         type_map, id_map = load_mappings()
         if type_map is not None and id_map is not None:
-            # 应用统一 ID 清洗
             df[type_col] = df[type_col].apply(clean_id)
             df[id_col] = df[id_col].apply(clean_id)
             type_map['resource_type'] = type_map['resource_type'].apply(clean_id)
             id_map['resource_id'] = id_map['resource_id'].apply(clean_id)
             
-            # 合并
             df = df.merge(type_map, left_on=type_col, right_on='resource_type', how='left')
             df = df.merge(id_map, left_on=id_col, right_on='resource_id', how='left')
             
-            # 结构化描述生成
-            mask = df['event_name'] == 'resource_get'
-            df.loc[mask, 'tag'] = (
+            # 【核心逻辑】：补充 Get 和 Cost 的结构化业务叙述
+            # 统一填充 tag 列
+            df['tag'] = ""
+            
+            # 填充 Get
+            get_mask = df['event_name'] == 'resource_get'
+            df.loc[get_mask, 'tag'] = (
                 "通过 " + df['category'].fillna('未知类别').astype(str) + 
                 " 的 " + df['description_x'].fillna('未知类型').astype(str) + 
-                " 来获取 " + df['description_y'].fillna('未知资源').astype(str)
+                " 获取 " + df['description_y'].fillna('未知资源').astype(str) + 
+                " x" + df['get_count'].fillna(0).astype(int).astype(str)
             )
             
-            st.success("✅ 数据映射及叙述生成成功")
+            # 填充 Cost
+            cost_mask = df['event_name'] == 'resource_cost'
+            df.loc[cost_mask, 'tag'] = (
+                "通过 " + df['category'].fillna('未知类别').astype(str) + 
+                " 的 " + df['description_x'].fillna('未知类型').astype(str) + 
+                " 消耗 " + df['description_y'].fillna('未知资源').astype(str) + 
+                " x" + df['cost_count'].fillna(0).astype(int).astype(str)
+            )
+            
+            st.success("✅ 数据映射及 Get/Cost 叙述生成成功")
         
-        # 标注与导出
         edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
         csv_buffer = io.StringIO()
         edited_df.to_csv(csv_buffer, index=False)
         st.download_button("💾 下载标注结果", csv_buffer.getvalue(), "labeled_data.csv", "text/csv")
     else:
-        st.info("💡 请上传数据文件以开始分析。")
+        st.info("💡 请上传数据文件")
 
 if __name__ == "__main__":
     main()
