@@ -15,7 +15,6 @@ def read_csv_smart(file_buffer):
     file_buffer.seek(0)
     sep = '\t' if '\t' in text_sample.split('\n')[0] else ','
     df = pd.read_csv(file_buffer, sep=sep, encoding=encoding)
-    # 清理所有列名的前后空格
     df.columns = df.columns.str.strip()
     return df
 
@@ -23,14 +22,12 @@ def read_csv_smart(file_buffer):
 @st.cache_data
 def load_mappings():
     try:
-        # 这里同样使用自动检测读取
         type_map = pd.read_csv('config/resource_type_mapping.csv', sep=None, engine='python')
         id_map = pd.read_csv('config/resource_id_mapping.csv', sep=None, engine='python')
-        # 统一清理映射表的列名
         type_map.columns = type_map.columns.str.strip()
         id_map.columns = id_map.columns.str.strip()
-        # 强制将第一列重命名为标准 KEY
-        type_map.rename(columns={type_map.columns[0]: 'get_type'}, inplace=True)
+        # 强制将第一列重命名为对应的键值，确保 merge 对齐
+        type_map.rename(columns={type_map.columns[0]: 'resource_type'}, inplace=True)
         id_map.rename(columns={id_map.columns[0]: 'resource_id'}, inplace=True)
         return type_map, id_map
     except Exception as e:
@@ -48,27 +45,29 @@ def main():
             st.error(f"读取文件失败: {e}")
             return
         
-        # 【关键改动】：自动从现有的列中匹配最接近的列名
+        # 自动匹配列名
         all_cols = df.columns.tolist()
-        type_col = next((c for c in all_cols if 'get_type' in c.lower()), None)
+        type_col = next((c for c in all_cols if 'resource_type' in c.lower()), None)
         id_col = next((c for c in all_cols if 'resource_id' in c.lower()), None)
         
         if not type_col or not id_col:
-            st.error(f"❌ 错误：在 CSV 中找不到 get_type 或 resource_id。现有列: {all_cols}")
+            st.error(f"❌ 错误：在 CSV 中找不到 resource_type 或 resource_id。现有列: {all_cols}")
             return
 
         type_map, id_map = load_mappings()
         if type_map is not None and id_map is not None:
-            # 清洗键值并进行合并
+            # 清洗
             df[type_col] = df[type_col].astype(str).str.strip()
             df[id_col] = df[id_col].astype(str).str.strip()
-            type_map['get_type'] = type_map['get_type'].astype(str).str.strip()
+            type_map['resource_type'] = type_map['resource_type'].astype(str).str.strip()
             id_map['resource_id'] = id_map['resource_id'].astype(str).str.strip()
             
-            df = df.merge(type_map, left_on=type_col, right_on='get_type', how='left')
+            # 合并
+            df = df.merge(type_map, left_on=type_col, right_on='resource_type', how='left')
             df = df.merge(id_map, left_on=id_col, right_on='resource_id', how='left')
             
-            # 【逻辑】：构建结构化业务叙述
+            # 【核心逻辑】：生成叙述描述
+            # 假设映射表中包含 description 和 category 列
             mask = df['event_name'] == 'resource_get'
             df.loc[mask, 'tag'] = (
                 "通过 " + df['category'].fillna('未知类别') + 
@@ -78,11 +77,12 @@ def main():
             
             st.success("✅ 数据映射及叙述生成成功")
         
-        # 标注与导出
         edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
         csv_buffer = io.StringIO()
         edited_df.to_csv(csv_buffer, index=False)
         st.download_button("💾 下载结果", csv_buffer.getvalue(), "labeled_data.csv", "text/csv")
+    else:
+        st.info("💡 请上传数据文件")
 
 if __name__ == "__main__":
     main()
