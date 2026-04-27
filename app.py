@@ -21,7 +21,6 @@ def read_csv_smart(file_buffer):
 @st.cache_data
 def load_mappings():
     try:
-        # 使用 engine='python' 配合 sep=None 让 pandas 自动探测分隔符
         type_map = pd.read_csv('config/resource_type_mapping.csv', sep=None, engine='python')
         id_map = pd.read_csv('config/resource_id_mapping.csv', sep=None, engine='python')
         type_map.rename(columns={type_map.columns[0]: 'get_type'}, inplace=True)
@@ -43,33 +42,41 @@ def main():
             return
         
         type_col, id_col = 'get_type', 'resource_id'
-        
-        if type_col not in df.columns or id_col not in df.columns:
-            st.error(f"❌ 错误：找不到必要的列 {type_col} 或 {id_col}")
-            return
-
         type_map, id_map = load_mappings()
+        
         if type_map is not None and id_map is not None:
-            # 【关键修复】确保 merge 双方的列都是字符串，防止类型不匹配的 ValueError
+            # 清洗并合并
             df[type_col] = df[type_col].astype(str).str.strip()
             df[id_col] = df[id_col].astype(str).str.strip()
-            type_map['get_type'] = type_map['get_type'].astype(str).str.strip()
-            id_map['resource_id'] = id_map['resource_id'].astype(str).str.strip()
             
-            # 执行合并
-            df = df.merge(type_map, on=type_col, how='left')
-            df = df.merge(id_map, on=id_col, how='left')
-            st.success("✅ 数据映射成功！")
+            # 为了明确区分映射表的 description，我们在合并前重命名
+            type_map_renamed = type_map.rename(columns={'description': 'type_desc'})
+            id_map_renamed = id_map.rename(columns={'description': 'res_desc'})
+            
+            df = df.merge(type_map_renamed, on=type_col, how='left')
+            df = df.merge(id_map_renamed, on=id_col, how='left')
+            
+            # 【核心逻辑】：构建结构化业务叙述
+            # 格式：通过 [category] 的 [type_desc] 来获取 [res_desc]
+            mask = df['event_name'] == 'resource_get'
+            df.loc[mask, 'tag'] = (
+                "通过 " + df['category'].fillna('未知类别') + 
+                " 的 " + df['type_desc'].fillna('未知类型') + 
+                " 来获取 " + df['res_desc'].fillna('未知资源')
+            )
+            
+            st.success("✅ 业务叙述已生成")
         
-        if 'expert_label' not in df.columns:
-            df['expert_label'] = ""
+        # 专家标注区
+        st.subheader("📝 专家定性标注")
         edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
         
+        # 导出
         csv_buffer = io.StringIO()
         edited_df.to_csv(csv_buffer, index=False)
         st.download_button("💾 下载标注结果", csv_buffer.getvalue(), "labeled_data.csv", "text/csv")
     else:
-        st.info("💡 请上传文件")
+        st.info("💡 请上传数据文件")
 
 if __name__ == "__main__":
     main()
